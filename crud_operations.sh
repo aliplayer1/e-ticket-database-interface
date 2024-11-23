@@ -272,23 +272,45 @@ COMMIT;"
 }
 
 delete_record() {
-    get_table || return
-    get_condition || return
-    
+    get_table || return 1
+    get_condition || return 1
+
     # Show records that will be deleted
     echo -e "\nThe following records will be deleted:"
     execute_formatted_sql "
-SELECT * FROM $table_name WHERE $condition;"
-    
+SELECT * FROM $table_name WHERE $condition;" || return 1
+
     echo -e "\nAre you sure you want to delete these records? (y/n): "
     read -r confirm
-    [[ "$confirm" != "y" ]] && echo "Delete cancelled." && return
-    
+    [[ "$confirm" != "y" ]] && echo "Delete cancelled." && return 1
+
+    # Execute delete with commit
     execute_formatted_sql "
 DELETE FROM $table_name WHERE $condition;
 COMMIT;"
-    echo "Record(s) deleted successfully."
+    status=$?
+
+    if [ $status -ne 0 ]; then
+        echo "Error deleting record(s)."
+        return 1
+    fi
+
+    # Check if records still exist
+    count=$(execute_formatted_sql "
+SELECT COUNT(*) FROM $table_name WHERE $condition;" |
+        sed -n '/COUNT/,+1p' |   # Get COUNT line and next line
+        tail -n1 |               # Take just the number line
+        tr -cd '0-9')           # Keep only digits
+
+    if [[ "$count" =~ ^[0-9]+$ ]] && [ "$count" -eq 0 ]; then
+        echo "Delete operation successful"
+        return 0
+    else
+        echo "Delete operation failed - records still exist"
+        return 1
+    fi
 }
+
 
 search_record() {
     get_table || return
